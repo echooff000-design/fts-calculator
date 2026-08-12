@@ -122,7 +122,9 @@ calculated_tour = get_calculated_tour(total_calculated_points)
 st.markdown("---")
 st.subheader("Summary Report")
 
-# Generate HTML string
+outlet_display_str = outlet_name.strip() if outlet_name.strip() else "N/A"
+
+# Build HTML Table Rows
 rows_html = ""
 for m in MONTHS:
     rows_html += f"""
@@ -137,8 +139,8 @@ for m in MONTHS:
         rows_html += f"""
         <tr>
             <td class="lbl-brand">{b}</td>
-            <td style="background-color: white;">{sec_disp}</td>
-            <td style="background-color: white;">{tert_disp}</td>
+            <td class="cell-val">{sec_disp}</td>
+            <td class="cell-val">{tert_disp}</td>
         </tr>
         """
     m_sec, m_tert = month_totals[m]
@@ -150,45 +152,85 @@ for m in MONTHS:
     </tr>
     """
 
-outlet_display_str = outlet_name.strip() if outlet_name.strip() else "N/A"
-
 full_html = f"""
 <!DOCTYPE html>
 <html>
 <head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
+    * {{
+        box-sizing: border-box;
+    }}
     body {{
         margin: 0;
         padding: 0;
-        font-family: Arial, sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         background-color: transparent;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
     }}
     .fts-table {{
         width: 100%;
-        max-width: 400px;
+        max-width: 100%;
         margin: 0 auto;
         border-collapse: collapse;
         font-weight: bold;
-        font-size: 14px;
+        font-size: clamp(11px, 3.2vw, 14px);
         text-align: center;
         border: 2px solid #000;
+        cursor: pointer;
+        user-select: none;
     }}
     .fts-table th, .fts-table td {{
         border: 1px solid #000;
-        padding: 6px 8px;
+        padding: 5px 4px;
+        word-break: break-word;
+        vertical-align: middle;
     }}
-    .hdr-outlet {{ background-color: #FFC000; color: black; text-align: center; font-size: 15px; }}
-    .hdr-main {{ background-color: #002060; color: white; }}
+    .hdr-outlet {{ background-color: #FFC000; color: black; text-align: center; font-size: clamp(12px, 3.5vw, 15px); }}
+    .hdr-main {{ background-color: #002060; color: white; text-align: center; }}
     .hdr-month {{ background-color: #C6EFCE; color: #006100; text-align: center; }}
-    .lbl-brand {{ background-color: #7030A0; color: white; text-align: left; padding-left: 10px; }}
-    .row-total {{ background-color: #00B0F0; color: black; }}
-    .row-grand {{ background-color: #FCE4D6; color: black; text-align: left; }}
-    .row-points {{ background-color: #E2EFDA; color: black; }}
-    .row-tour {{ background-color: #003300; color: white; text-align: left; }}
+    .lbl-brand {{ background-color: #7030A0; color: white; text-align: left; padding-left: 8px; width: 40%; }}
+    .cell-val {{ background-color: white; width: 30%; text-align: center; }}
+    .row-total {{ background-color: #00B0F0; color: black; text-align: center; }}
+    .row-grand {{ background-color: #FCE4D6; color: black; text-align: center; }}
+    .row-points {{ background-color: #E2EFDA; color: black; text-align: center; }}
+    .row-tour {{ background-color: #003300; color: white; text-align: center; }}
+    
+    .hint-text {{
+        font-size: 11px;
+        color: #555;
+        margin-top: 6px;
+        margin-bottom: 12px;
+        text-align: center;
+    }}
+    
+    .btn-share {{
+        background-color: #25D366;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        font-size: 14px;
+        font-weight: bold;
+        border-radius: 6px;
+        cursor: pointer;
+        width: 100%;
+        max-width: 300px;
+        margin-top: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+    }}
+    .btn-share:active {{
+        background-color: #1EBE5D;
+    }}
 </style>
 </head>
 <body>
-<table class="fts-table">
+
+<table class="fts-table" id="summaryTable">
     <thead>
         <tr class="hdr-outlet">
             <td colspan="3">Outlet Name: {outlet_display_str}</td>
@@ -216,12 +258,54 @@ full_html = f"""
         </tr>
     </tbody>
 </table>
+
+<div class="hint-text">💡 <i>Tip: Triple-click anywhere on the table above to download photo snap directly</i></div>
+
+<button class="btn-share" onclick="shareReport()">
+    📲 Share Report
+</button>
+
+<script>
+// Triple-click handler for download
+let clickCount = 0;
+let clickTimer = null;
+
+document.getElementById('summaryTable').addEventListener('click', function() {{
+    clickCount++;
+    if (clickTimer) clearTimeout(clickTimer);
+    
+    if (clickCount === 3) {{
+        clickCount = 0;
+        // Trigger download button in parent window
+        window.parent.document.querySelector("button[kind='primary'], button[data-testid='stBaseButton-secondary']").click();
+    }} else {{
+        clickTimer = setTimeout(function() {{
+            clickCount = 0;
+        }}, 400);
+    }}
+}});
+
+// Native Share API handler
+function shareReport() {{
+    const shareData = {{
+        title: 'FTS Report — {outlet_display_str}',
+        text: 'Outlet Name: {outlet_display_str}\\nGrand Total Sec: {grand_sec} | Tert: {grand_tert}\\nTotal Points: {total_calculated_points}\\nCalculated Tour: {calculated_tour}',
+    }};
+    if (navigator.share) {{
+        navigator.share(shareData).catch((err) => console.log('Error sharing:', err));
+    }} else {{
+        navigator.clipboard.writeText(shareData.text);
+        alert('Report details copied to clipboard!');
+    }}
+}}
+</script>
+
 </body>
 </html>
 """
 
-# Render via html component
-components.html(full_html, height=1200, scrolling=False)
+# Render via HTML iframe component
+components.html(full_html, height=1280, scrolling=False)
 
 
 # Function to render image snapshot via Matplotlib for direct download
@@ -231,11 +315,11 @@ def generate_snapshot_image():
 
     table_data = [
         [f"Outlet Name: {outlet_display_str}", "", ""],
-        ["Brand", "Secondary", "Tertiary"]
+        ["Brand", "Secondary", "Tertiary"],
     ]
     cell_colors = [
         ["#FFC000", "#FFC000", "#FFC000"],
-        ["#002060", "#002060", "#002060"]
+        ["#002060", "#002060", "#002060"],
     ]
 
     for m in MONTHS:
