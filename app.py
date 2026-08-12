@@ -70,6 +70,10 @@ def get_calculated_tour(total_points):
 
 
 st.title("FTS Calculator")
+
+# Outlet Name Input Section
+outlet_name = st.text_input("Outlet Name", value="", placeholder="Enter Outlet Name here...")
+
 st.write("Enter Secondary and Tertiary values below to compute target points:")
 
 # Data Input Form
@@ -114,7 +118,7 @@ for m in MONTHS:
 
 calculated_tour = get_calculated_tour(total_calculated_points)
 
-# Display Summary Report using Native Components
+# Display Summary Report
 st.markdown("---")
 st.subheader("Summary Report")
 
@@ -146,6 +150,8 @@ for m in MONTHS:
     </tr>
     """
 
+outlet_display_str = outlet_name.strip() if outlet_name.strip() else "N/A"
+
 full_html = f"""
 <!DOCTYPE html>
 <html>
@@ -171,6 +177,7 @@ full_html = f"""
         border: 1px solid #000;
         padding: 6px 8px;
     }}
+    .hdr-outlet {{ background-color: #FFC000; color: black; text-align: center; font-size: 15px; }}
     .hdr-main {{ background-color: #002060; color: white; }}
     .hdr-month {{ background-color: #C6EFCE; color: #006100; text-align: center; }}
     .lbl-brand {{ background-color: #7030A0; color: white; text-align: left; padding-left: 10px; }}
@@ -183,6 +190,9 @@ full_html = f"""
 <body>
 <table class="fts-table">
     <thead>
+        <tr class="hdr-outlet">
+            <td colspan="3">Outlet Name: {outlet_display_str}</td>
+        </tr>
         <tr class="hdr-main">
             <th>Brand</th>
             <th>Secondary</th>
@@ -210,17 +220,23 @@ full_html = f"""
 </html>
 """
 
-# Render via html component to avoid markdown raw text escaping issues
-components.html(full_html, height=1150, scrolling=False)
+# Render via html component
+components.html(full_html, height=1200, scrolling=False)
 
 
 # Function to render image snapshot via Matplotlib for direct download
 def generate_snapshot_image():
-    fig, ax = plt.subplots(figsize=(4, 11), dpi=200)
+    fig, ax = plt.subplots(figsize=(4, 11.5), dpi=200)
     ax.axis("off")
 
-    table_data = [["Brand", "Secondary", "Tertiary"]]
-    cell_colors = [["#002060", "#002060", "#002060"]]
+    table_data = [
+        [f"Outlet Name: {outlet_display_str}", "", ""],
+        ["Brand", "Secondary", "Tertiary"]
+    ]
+    cell_colors = [
+        ["#FFC000", "#FFC000", "#FFC000"],
+        ["#002060", "#002060", "#002060"]
+    ]
 
     for m in MONTHS:
         table_data.append([m, "", ""])
@@ -256,8 +272,10 @@ def generate_snapshot_image():
     for (r, c), cell in tab.get_celld().items():
         cell.set_edgecolor("black")
         cell.set_linewidth(1)
-        # Font color adjustments
         if r == 0:
+            cell.get_text().set_color("black")
+            cell.get_text().set_weight("bold")
+        elif r == 1:
             cell.get_text().set_color("white")
             cell.get_text().set_weight("bold")
         elif table_data[r][0] in BRANDS and c == 0:
@@ -281,6 +299,6 @@ img_buf = generate_snapshot_image()
 st.download_button(
     label="📷 Download Table Snap (PNG)",
     data=img_buf,
-    file_name="FTS_Calculator_Snapshot.png",
+    file_name=f"FTS_Calculator_{outlet_display_str.replace(' ', '_')}.png",
     mime="image/png",
 )
