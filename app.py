@@ -2,37 +2,25 @@ import io
 import os
 import re
 import matplotlib.pyplot as plt
+import openpyxl
 import pandas as pd
 import requests
 import streamlit as st
 import streamlit.components.v1 as components
-from openpyxl import load_workbook
 
 # Page Configuration
 st.set_page_config(page_title="FTS Management Portal", layout="centered")
 
-# ==========================================
-# LOCAL EXCEL FILE PATH CONFIGURATION
-# ==========================================
-PRIMARY_XLSX = r"C:\Users\admin\OneDrive - Tilak Nagar Industries Ltd\Documents\App Data\FTS Calculation Update.xlsx"
-PRIMARY_XLSB = r"C:\Users\admin\OneDrive - Tilak Nagar Industries Ltd\Documents\App Data\FTS Calculation Update.xlsb"
+# Direct Shareable Download URL for your SharePoint File
+SHAREPOINT_DIRECT_DOWNLOAD_URL = "https://tilaknagarindustries-my.sharepoint.com/:x:/g/personal/andebnath_tilind_com/IQBXwlCv60OJSoXvUAk-7j7FATrDyVAIk_UoFRX4p1k2pWw?download=1"
 
+# Local search fallback paths (for offline desktop use)
+PRIMARY_XLSX = r"C:\Users\admin\OneDrive - Tilak Nagar Industries Ltd\Documents\App Data\FTS Calculation Update.xlsx"
 LOCAL_SEARCH_PATHS = [
     PRIMARY_XLSX,
-    PRIMARY_XLSB,
     "FTS Calculation Update.xlsx",
-    "FTS Calculation Update.xlsb",
     "FTS Calculator.xlsx",
 ]
-
-# ==========================================
-# SHAREPOINT GRAPH API CONFIG (TOKEN BASED)
-# ==========================================
-SHARING_TOKEN = "u!aHR0cHM6Ly90aWxha25hZ2FyaW5kdXN0cmllcy1teS5zaGFyZXBvaW50LmNvbS86eDovZy9wZXJzb25hbC9hbmRlYm5hdGhfdGlsaW5kX2NvbS9JUUJYd2xDdjYwT0pTb1h2VUFrLTdqN0ZBVHJEeVZBSWtfVW9GUlg0cDFrMnBXdw"
-
-TENANT_ID = st.secrets.get("MS_TENANT_ID", "YOUR_TENANT_ID")
-CLIENT_ID = st.secrets.get("MS_CLIENT_ID", "YOUR_CLIENT_ID")
-CLIENT_SECRET = st.secrets.get("MS_CLIENT_SECRET", "YOUR_CLIENT_SECRET")
 
 BRANDS = ["IBDC", "MHW", "BLGLM", "BLGOR", "MHFB", "SMG", "SMGP", "SIW", "Monarch"]
 
@@ -49,56 +37,32 @@ POINTS_CONFIG = {
 }
 
 
-def get_graph_access_token():
-    """Acquires access token from Microsoft Entra ID (Azure AD) safely."""
-    if TENANT_ID in ["YOUR_TENANT_ID", "your_tenant_id_here", ""]:
-        return None
+@st.cache_data(ttl=10)
+def fetch_sharepoint_excel_bytes():
+    """Downloads live Excel workbook bytes directly from SharePoint share link."""
     try:
-        import msal
-        authority = f"https://login.microsoftonline.com/{TENANT_ID}"
-        app = msal.ConfidentialClientApplication(
-            CLIENT_ID, authority=authority, client_credential=CLIENT_SECRET
-        )
-        scopes = ["https://graph.microsoft.com/.default"]
-        result = app.acquire_token_for_client(scopes=scopes)
-        if "access_token" in result:
-            return result["access_token"]
+        res = requests.get(SHAREPOINT_DIRECT_DOWNLOAD_URL, timeout=10)
+        if res.status_code == 200:
+            return res.content
     except Exception:
         pass
-    return None
 
-
-def find_existing_excel_path():
-    """Finds existing local Excel file path."""
+    # Fallback to local desktop file if offline
     for path in LOCAL_SEARCH_PATHS:
         if os.path.exists(path):
-            return path
+            with open(path, "rb") as f:
+                return f.read()
+
     return None
 
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=10)
 def load_outlet_master():
-    """Loads Outlet Master data from SharePoint API (via Sharing Token) or local file."""
-    token = get_graph_access_token()
-    if token:
+    """Reads Outlet Master sheet directly from live SharePoint workbook."""
+    excel_bytes = fetch_sharepoint_excel_bytes()
+    if excel_bytes:
         try:
-            headers = {"Authorization": f"Bearer {token}"}
-            url = f"https://graph.microsoft.com/v1.0/shares/{SHARING_TOKEN}/driveItem/workbook/worksheets('Outlet Master')/usedRange"
-            res = requests.get(url, headers=headers)
-            if res.status_code == 200:
-                data = res.json().get("values", [])
-                if len(data) > 1:
-                    return pd.DataFrame(data[1:], columns=data[0])
-        except Exception:
-            pass
-
-    file_path = find_existing_excel_path()
-    if file_path:
-        try:
-            engine = "pyxlsb" if file_path.endswith(".xlsb") else "openpyxl"
-            df = pd.read_excel(file_path, sheet_name="Outlet Master", engine=engine)
-            if not df.empty:
-                return df
+            return pd.read_excel(io.BytesIO(excel_bytes), sheet_name="Outlet Master")
         except Exception:
             pass
 
@@ -113,37 +77,22 @@ def load_outlet_master():
     )
 
 
-@st.cache_data(ttl=2)
+@st.cache_data(ttl=5)
 def load_full_enrollment_raw():
-    """Loads Enrollment worksheet raw data from SharePoint API or local file."""
-    token = get_graph_access_token()
-    if token:
+    """Reads raw Enrollment sheet directly from live SharePoint workbook."""
+    excel_bytes = fetch_sharepoint_excel_bytes()
+    if excel_bytes:
         try:
-            headers = {"Authorization": f"Bearer {token}"}
-            url = f"https://graph.microsoft.com/v1.0/shares/{SHARING_TOKEN}/driveItem/workbook/worksheets('Enrollment')/usedRange"
-            res = requests.get(url, headers=headers)
-            if res.status_code == 200:
-                data = res.json().get("values", [])
-                if len(data) > 1:
-                    return pd.DataFrame(data)
-        except Exception:
-            pass
-
-    file_path = find_existing_excel_path()
-    if file_path:
-        try:
-            engine = "pyxlsb" if file_path.endswith(".xlsb") else "openpyxl"
-            xl = pd.ExcelFile(file_path, engine=engine)
+            xl = pd.ExcelFile(io.BytesIO(excel_bytes))
             sheet_name = "Enrollment" if "Enrollment" in xl.sheet_names else "Enrolment"
-            df_raw = pd.read_excel(file_path, sheet_name=sheet_name, header=None, engine=engine)
-            return df_raw
+            return pd.read_excel(io.BytesIO(excel_bytes), sheet_name=sheet_name, header=None)
         except Exception:
             pass
     return pd.DataFrame()
 
 
 def update_row_references(formula_str, old_row, new_row):
-    """Updates formula cell row references dynamically."""
+    """Adjusts cell row numbers in Excel formulas."""
     if not isinstance(formula_str, str) or not formula_str.startswith("="):
         return formula_str
 
@@ -158,59 +107,39 @@ def update_row_references(formula_str, old_row, new_row):
     return re.sub(pattern, replace_row, formula_str)
 
 
-def append_enrolment_record_with_formulas(row_values):
-    """Appends record to SharePoint via Graph API or local Excel file."""
-    token = get_graph_access_token()
-    if token:
-        try:
-            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-            url = f"https://graph.microsoft.com/v1.0/shares/{SHARING_TOKEN}/driveItem/workbook/worksheets('Enrollment')/tables('EnrollmentTable')/rows/add"
-            payload = {"values": [row_values]}
-            res = requests.post(url, headers=headers, json=payload)
-            if res.status_code in [200, 201]:
-                return True, "Successfully synced directly to SharePoint Excel!"
-        except Exception:
-            pass
+def append_enrolment_to_bytes(row_values):
+    """Appends enrolment record and drags formulas down in-memory."""
+    excel_bytes = fetch_sharepoint_excel_bytes()
+    if not excel_bytes:
+        return False, "Could not load base Excel file.", None
 
-    file_path = find_existing_excel_path()
-    if file_path:
-        target_path = file_path
-        if file_path.endswith(".xlsb"):
-            target_path = file_path.replace(".xlsb", ".xlsx")
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(excel_bytes))
+        sheet_name = "Enrollment" if "Enrollment" in wb.sheetnames else "Enrolment"
+        sheet = wb[sheet_name]
 
-        try:
-            if os.path.exists(target_path):
-                wb = load_workbook(target_path)
-            else:
-                wb = load_workbook(target_path)
+        new_row_idx = sheet.max_row + 1
+        if sheet.max_row == 1 and sheet.cell(1, 1).value is None:
+            new_row_idx = 1
 
-            sheet_name = "Enrollment" if "Enrollment" in wb.sheetnames else "Enrolment"
-            sheet = wb[sheet_name]
+        for col_idx, val in enumerate(row_values, start=1):
+            sheet.cell(row=new_row_idx, column=col_idx, value=val)
 
-            new_row_idx = sheet.max_row + 1
-            if sheet.max_row == 1 and sheet.cell(1, 1).value is None:
-                new_row_idx = 1
+        prev_row_idx = new_row_idx - 1
+        if prev_row_idx >= 3:
+            for col_idx in range(len(row_values) + 1, sheet.max_column + 1):
+                prev_cell = sheet.cell(row=prev_row_idx, column=col_idx)
+                prev_val = prev_cell.value
+                if isinstance(prev_val, str) and prev_val.startswith("="):
+                    new_formula = update_row_references(prev_val, prev_row_idx, new_row_idx)
+                    sheet.cell(row=new_row_idx, column=col_idx, value=new_formula)
 
-            for col_idx, val in enumerate(row_values, start=1):
-                sheet.cell(row=new_row_idx, column=col_idx, value=val)
-
-            prev_row_idx = new_row_idx - 1
-            if prev_row_idx >= 3:
-                for col_idx in range(len(row_values) + 1, sheet.max_column + 1):
-                    prev_cell = sheet.cell(row=prev_row_idx, column=col_idx)
-                    prev_val = prev_cell.value
-                    if isinstance(prev_val, str) and prev_val.startswith("="):
-                        new_formula = update_row_references(prev_val, prev_row_idx, new_row_idx)
-                        sheet.cell(row=new_row_idx, column=col_idx, value=new_formula)
-
-            wb.save(target_path)
-            return True, f"Successfully saved locally to '{os.path.basename(target_path)}'!"
-        except PermissionError:
-            return False, f"Permission Error: Please CLOSE '{os.path.basename(target_path)}' in Excel."
-        except Exception as e:
-            return False, f"File Save Error: {e}"
-
-    return False, "Could not locate an accessible Excel file or SharePoint connection."
+        out_buffer = io.BytesIO()
+        wb.save(out_buffer)
+        out_buffer.seek(0)
+        return True, "Successfully registered enrolment entry!", out_buffer.getvalue()
+    except Exception as e:
+        return False, f"Error processing file: {e}", None
 
 
 def get_calculated_tour(total_points):
@@ -237,23 +166,15 @@ page = st.sidebar.radio(
 st.sidebar.markdown("---")
 st.sidebar.subheader("💾 Master Excel File")
 
-excel_path = find_existing_excel_path()
-if excel_path and os.path.exists(excel_path):
-    with open(excel_path, "rb") as f:
-        file_bytes = f.read()
-
-    file_name = os.path.basename(excel_path)
-    mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" if file_name.endswith(".xlsx") else "application/vnd.ms-excel.sheet.binary.macroEnabled.12"
-
+master_bytes = fetch_sharepoint_excel_bytes()
+if master_bytes:
     st.sidebar.download_button(
-        label="📥 Download Master Excel",
-        data=file_bytes,
-        file_name=file_name,
-        mime=mime_type,
+        label="📥 Download Master Excel Workbook",
+        data=master_bytes,
+        file_name="FTS Calculation Update.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
     )
-else:
-    st.sidebar.info("Excel file path pending setup.")
 
 
 # ==========================================
@@ -261,12 +182,12 @@ else:
 # ==========================================
 if page == "Ach as per enrolment":
     st.title("📊 Achievement vs Enrolment Report")
-    st.write("Track live achievement against committed party targets:")
+    st.write("Live achievement tracking against committed party targets:")
 
     df_raw = load_full_enrollment_raw()
 
     if df_raw.empty or len(df_raw) < 3:
-        st.warning("No enrolment data available. Please submit an enrolment first.")
+        st.warning("No enrolment data available.")
     else:
         main_cols = [
             "Asm", "TSE", "Lic ID/Group", "Outlet Name", "Group/Individual",
@@ -352,10 +273,7 @@ if page == "Ach as per enrolment":
 elif page == "FTS Calculator":
     st.title("FTS Calculator")
 
-    outlet_name_calc = st.text_input(
-        "Outlet Name", value="", placeholder="Enter Outlet Name here..."
-    )
-
+    outlet_name_calc = st.text_input("Outlet Name", value="", placeholder="Enter Outlet Name here...")
     st.subheader("Data Input — Aug'26 to Oct'26 Plan")
 
     inputs = {}
@@ -365,12 +283,8 @@ elif page == "FTS Calculator":
 
     for b in BRANDS:
         c1, c2 = st.columns(2)
-        sec_val = c1.number_input(
-            f"{b} (Secondary)", min_value=0, value=0, step=1, key=f"{b}_sec"
-        )
-        tert_val = c2.number_input(
-            f"{b} (Tertiary)", min_value=0, value=0, step=1, key=f"{b}_tert"
-        )
+        sec_val = c1.number_input(f"{b} (Secondary)", min_value=0, value=0, step=1, key=f"{b}_sec")
+        tert_val = c2.number_input(f"{b} (Tertiary)", min_value=0, value=0, step=1, key=f"{b}_tert")
 
         inputs[b] = (sec_val, tert_val)
         total_sec += sec_val
@@ -380,9 +294,7 @@ elif page == "FTS Calculator":
         total_calculated_points += (sec_val * pts_sec) + (tert_val * pts_tert)
 
     calculated_tour = get_calculated_tour(total_calculated_points)
-    outlet_display_str = (
-        outlet_name_calc.strip() if outlet_name_calc.strip() else "N/A"
-    )
+    outlet_display_str = outlet_name_calc.strip() if outlet_name_calc.strip() else "N/A"
 
     st.markdown("---")
     st.subheader("Summary Report")
@@ -420,7 +332,6 @@ elif page == "FTS Calculator":
         .row-total {{ background-color: #00B0F0; color: black; text-align: center; }}
         .row-points {{ background-color: #E2EFDA; color: black; text-align: center; }}
         .row-tour {{ background-color: #003300; color: white; text-align: center; }}
-        .hint-text {{ font-size: 11px; color: #555; margin-top: 6px; margin-bottom: 12px; text-align: center; }}
         .btn-share {{ background-color: #25D366; color: white; border: none; padding: 12px 20px; font-size: 14px; font-weight: bold; border-radius: 6px; cursor: pointer; width: 100%; max-width: 320px; margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }}
     </style>
     </head>
@@ -440,23 +351,9 @@ elif page == "FTS Calculator":
             </tbody>
         </table>
     </div>
-    <div class="hint-text">💡 <i>Tip: Triple-click anywhere on the table to download photo snap directly</i></div>
     <button class="btn-share" onclick="shareReportImage()">📲 Share Report Image</button>
 
     <script>
-    let clickCount = 0;
-    let clickTimer = null;
-    document.getElementById('summaryTable').addEventListener('click', function() {{
-        clickCount++;
-        if (clickTimer) clearTimeout(clickTimer);
-        if (clickCount === 3) {{
-            clickCount = 0;
-            window.parent.document.querySelector("button[kind='primary'], button[data-testid='stBaseButton-secondary']").click();
-        }} else {{
-            clickTimer = setTimeout(function() {{ clickCount = 0; }}, 400);
-        }}
-    }});
-
     async function shareReportImage() {{
         const area = document.getElementById('reportCaptureArea');
         try {{
@@ -505,9 +402,7 @@ elif page == "FTS Calculator":
 
         for b in BRANDS:
             sec, tert = inputs[b]
-            table_data.append(
-                [b, str(sec) if sec > 0 else "", str(tert) if tert > 0 else ""]
-            )
+            table_data.append([b, str(sec) if sec > 0 else "", str(tert) if tert > 0 else ""])
             cell_colors.append(["#7030A0", "#FFFFFF", "#FFFFFF"])
 
         table_data.append(["Total", str(total_sec), str(total_tert)])
@@ -519,34 +414,8 @@ elif page == "FTS Calculator":
         table_data.append(["Calculated Tour", str(calculated_tour), ""])
         cell_colors.append(["#003300", "#003300", "#003300"])
 
-        tab = ax.table(
-            cellText=table_data,
-            cellColours=cell_colors,
-            loc="center",
-            cellLoc="center",
-        )
+        tab = ax.table(cellText=table_data, cellColours=cell_colors, loc="center", cellLoc="center")
         tab.scale(1, 1.3)
-
-        for (r, c), cell in tab.get_celld().items():
-            cell.set_edgecolor("black")
-            cell.set_linewidth(1)
-            if r == 0:
-                cell.get_text().set_color("black")
-                cell.get_text().set_weight("bold")
-            elif r == 1:
-                cell.get_text().set_color("white")
-                cell.get_text().set_weight("bold")
-            elif r == 2:
-                cell.get_text().set_color("#006100")
-                cell.get_text().set_weight("bold")
-            elif table_data[r][0] in BRANDS and c == 0:
-                cell.get_text().set_color("white")
-                cell.get_text().set_weight("bold")
-            elif table_data[r][0] == "Calculated Tour":
-                cell.get_text().set_color("white")
-                cell.get_text().set_weight("bold")
-            else:
-                cell.get_text().set_weight("bold")
 
         buf = io.BytesIO()
         plt.savefig(buf, format="png", bbox_inches="tight", pad_inches=0.1)
@@ -568,7 +437,7 @@ elif page == "FTS Calculator":
 # ==========================================
 elif page == "Enrol party for FTS":
     st.title("📝 Enrol Party for FTS")
-    st.write("Fill in party enrolment details. Data will automatically sync to your Excel **Enrollment** sheet:")
+    st.write("Fill in party enrolment details below:")
 
     df_master = load_outlet_master()
 
@@ -626,21 +495,15 @@ elif page == "Enrol party for FTS":
 
         with q_col1:
             st.markdown("##### 12,000 Pts")
-            qty_mauritius = st.number_input(
-                "4N/ 5D Mauritius (Qty)", min_value=0, value=0, step=1, key="qty_mauritius"
-            )
+            qty_mauritius = st.number_input("4N/ 5D Mauritius (Qty)", min_value=0, value=0, step=1, key="qty_mauritius")
 
         with q_col2:
             st.markdown("##### 9,000 Pts")
-            qty_ladakh = st.number_input(
-                "6N/ 7D Ladakh (Qty)", min_value=0, value=0, step=1, key="qty_ladakh"
-            )
+            qty_ladakh = st.number_input("6N/ 7D Ladakh (Qty)", min_value=0, value=0, step=1, key="qty_ladakh")
 
         with q_col3:
             st.markdown("##### 6,000 Pts")
-            qty_manali = st.number_input(
-                "4N/ 5D Manali (Qty)", min_value=0, value=0, step=1, key="qty_manali"
-            )
+            qty_manali = st.number_input("4N/ 5D Manali (Qty)", min_value=0, value=0, step=1, key="qty_manali")
 
         submit_btn = st.form_submit_button("🚀 Submit Enrolment")
 
@@ -668,18 +531,15 @@ elif page == "Enrol party for FTS":
                 total_point_required,
             ]
 
-            success, msg = append_enrolment_record_with_formulas(row_data)
-            if success:
-                st.success(f"✅ {msg}")
-                st.cache_data.clear()
+            success, msg, updated_bytes = append_enrolment_to_bytes(row_data)
+            if success and updated_bytes:
+                st.success("✅ Enrolment recorded successfully!")
+                st.download_button(
+                    label="📥 Download Updated Excel File",
+                    data=updated_bytes,
+                    file_name="FTS Calculation Update.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                )
             else:
                 st.error(f"❌ {msg}")
-
-            st.markdown("---")
-            st.write("**Submitted Entry Preview (Cols A to J):**")
-            preview_df = pd.DataFrame([row_data], columns=[
-                "Asm", "TSE", "Lic ID/Group", "Outlet Name", "Group/Individual",
-                "4N/ 5D Mauritius", "6N/ 7D Ladakh", "4N/ 5D Manali",
-                "Total Ticket", "Total Point Required"
-            ])
-            st.dataframe(preview_df, use_container_width=True)
