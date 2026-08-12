@@ -79,7 +79,7 @@ def get_calculated_tour(total_points):
 
 
 # ==========================================
-# SIDEBAR NAVIGATION
+# SIDEBAR NAVIGATION & ACTIONS
 # ==========================================
 st.sidebar.title("📌 FTS Portal Menu")
 
@@ -89,7 +89,34 @@ page = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("⚡ **Live Google Sheets Connected**")
+st.sidebar.subheader("🔄 Live Database Control")
+
+# Refresh Data Base Button
+if st.sidebar.button("🔄 Refresh Data Base", use_container_width=True):
+    st.cache_data.clear()
+    st.sidebar.success("✅ Database refreshed!")
+    st.rerun()
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("💾 Master Excel File")
+
+# Download Live Excel File Button
+GOOGLE_XLSX_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=xlsx"
+
+try:
+    excel_res = requests.get(GOOGLE_XLSX_URL, timeout=10)
+    if excel_res.status_code == 200:
+        st.sidebar.download_button(
+            label="📥 Download Master Excel",
+            data=excel_res.content,
+            file_name="FTS Calculation Update.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+    else:
+        st.sidebar.info("Excel export currently unavailable.")
+except Exception:
+    st.sidebar.info("Unable to fetch Excel file.")
 
 
 # ==========================================
