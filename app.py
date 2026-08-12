@@ -16,7 +16,7 @@ st.markdown(
     .fts-table {
         width: 100%;
         max-width: 420px;
-        margin: auto;
+        margin: 20px auto;
         border-collapse: collapse;
         font-family: Arial, sans-serif;
         font-weight: bold;
@@ -26,7 +26,7 @@ st.markdown(
     }
     .fts-table th, .fts-table td {
         border: 1px solid #000;
-        padding: 5px 8px;
+        padding: 6px 8px;
     }
     .hdr-main { background-color: #002060; color: white; }
     .hdr-month { background-color: #C6EFCE; color: #006100; text-align: center; }
@@ -153,24 +153,16 @@ calculated_tour = get_calculated_tour(total_calculated_points)
 st.markdown("---")
 st.subheader("Summary Report")
 
-table_html = f"""
-<table class="fts-table">
-    <tr class="hdr-main">
-        <th>Brand</th>
-        <th>Secondary</th>
-        <th>Tertiary</th>
-    </tr>
-"""
-
+rows_html = ""
 for m in MONTHS:
-    table_html += f"""
+    rows_html += f"""
     <tr class="hdr-month">
         <td colspan="3">{m}</td>
     </tr>
     """
     for b in BRANDS:
         sec, tert = inputs[(m, b)]
-        table_html += f"""
+        rows_html += f"""
         <tr>
             <td class="lbl-brand">{b}</td>
             <td style="background-color: white;">{sec if sec > 0 else ''}</td>
@@ -178,7 +170,7 @@ for m in MONTHS:
         </tr>
         """
     m_sec, m_tert = month_totals[m]
-    table_html += f"""
+    rows_html += f"""
     <tr class="row-total">
         <td>Total</td>
         <td>{m_sec}</td>
@@ -186,24 +178,35 @@ for m in MONTHS:
     </tr>
     """
 
-table_html += f"""
-    <tr class="row-grand">
-        <td>Grand Total</td>
-        <td>{grand_sec}</td>
-        <td>{grand_tert}</td>
-    </tr>
-    <tr class="row-points">
-        <td>Total Point</td>
-        <td colspan="2">{total_calculated_points}</td>
-    </tr>
-    <tr class="row-tour">
-        <td>Calculated Tour</td>
-        <td colspan="2">{calculated_tour}</td>
-    </tr>
+full_table_html = f"""
+<table class="fts-table">
+    <thead>
+        <tr class="hdr-main">
+            <th>Brand</th>
+            <th>Secondary</th>
+            <th>Tertiary</th>
+        </tr>
+    </thead>
+    <tbody>
+        {rows_html}
+        <tr class="row-grand">
+            <td>Grand Total</td>
+            <td>{grand_sec}</td>
+            <td>{grand_tert}</td>
+        </tr>
+        <tr class="row-points">
+            <td>Total Point</td>
+            <td colspan="2">{total_calculated_points}</td>
+        </tr>
+        <tr class="row-tour">
+            <td>Calculated Tour</td>
+            <td colspan="2">{calculated_tour}</td>
+        </tr>
+    </tbody>
 </table>
 """
 
-st.markdown(table_html, unsafe_allow_html=True)
+st.markdown(full_table_html, unsafe_allow_html=True)
 
 
 # Function to render image snapshot via Matplotlib for direct download
