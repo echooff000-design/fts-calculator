@@ -15,6 +15,9 @@ st.set_page_config(page_title="FTS Management Portal", layout="centered")
 # ==========================================
 SPREADSHEET_ID = "1lp0lxyodBfvKBK3HX5nuckptSiWl7pAb_Dk_gv17r_A"
 
+# REPLACE THIS WITH YOUR DEPLOYED GOOGLE APPS SCRIPT WEB APP URL
+WEB_APP_URL = "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE"
+
 BRANDS = ["IBDC", "MHW", "BLGLM", "BLGOR", "MHFB", "SMG", "SMGP", "SIW", "Monarch"]
 
 POINTS_CONFIG = {
@@ -30,7 +33,7 @@ POINTS_CONFIG = {
 }
 
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=3)
 def load_sheet_by_name(sheet_name):
     """Loads sheet data safely by encoding spaces in sheet names."""
     encoded_name = urllib.parse.quote(sheet_name)
@@ -43,7 +46,7 @@ def load_sheet_by_name(sheet_name):
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=3)
 def load_outlet_master():
     df_raw = load_sheet_by_name("Outlet Master")
     if not df_raw.empty and len(df_raw) > 1:
@@ -65,6 +68,26 @@ def load_outlet_master():
 @st.cache_data(ttl=2)
 def load_full_enrollment_raw():
     return load_sheet_by_name("Enrollment")
+
+
+def send_row_to_google_sheet(row_values):
+    """Posts a new enrolment row directly to Google Sheets via Web App API."""
+    if WEB_APP_URL in ["", "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE"]:
+        return False, "Google Apps Script Web App URL is not configured in app.py."
+
+    try:
+        response = requests.post(
+            WEB_APP_URL,
+            json={"row": row_values},
+            headers={"Content-Type": "application/json"},
+            timeout=15,
+        )
+        if response.status_code == 200:
+            return True, "Successfully added to Google Sheet!"
+        else:
+            return False, f"Server responded with status code: {response.status_code}"
+    except Exception as e:
+        return False, f"Error pushing row to Google Sheet: {e}"
 
 
 def get_calculated_tour(total_points):
@@ -91,7 +114,6 @@ page = st.sidebar.radio(
 st.sidebar.markdown("---")
 st.sidebar.subheader("🔄 Live Database Control")
 
-# Refresh Data Base Button
 if st.sidebar.button("🔄 Refresh Data Base", use_container_width=True):
     st.cache_data.clear()
     st.sidebar.success("✅ Database refreshed!")
@@ -100,7 +122,6 @@ if st.sidebar.button("🔄 Refresh Data Base", use_container_width=True):
 st.sidebar.markdown("---")
 st.sidebar.subheader("💾 Master Excel File")
 
-# Download Live Excel File Button
 GOOGLE_XLSX_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=xlsx"
 
 try:
@@ -497,8 +518,12 @@ elif page == "Enrol party for FTS":
                 total_point_required,
             ]
 
-            st.success("✅ Enrolment processed successfully!")
-            st.cache_data.clear()
+            success, msg = send_row_to_google_sheet(row_data)
+            if success:
+                st.success(f"✅ {msg}")
+                st.cache_data.clear()
+            else:
+                st.error(f"❌ {msg}")
 
             st.markdown("---")
             st.write("**Submitted Entry Preview (Cols A to J):**")
