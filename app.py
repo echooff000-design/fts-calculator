@@ -1,16 +1,19 @@
 import io
 import re
+import urllib.parse
 import matplotlib.pyplot as plt
 import pandas as pd
+import requests
 import streamlit as st
 import streamlit.components.v1 as components
-from streamlit_gsheets import GSheetsConnection
 
 # Page Configuration
 st.set_page_config(page_title="FTS Management Portal", layout="centered")
 
-# Initialize Google Sheets Connection
-conn = st.connection("gsheets", type=GSheetsConnection)
+# ==========================================
+# GOOGLE SHEET CONFIGURATION
+# ==========================================
+SPREADSHEET_ID = "1lp0lxyodBfvKBK3HX5nuckptSiWl7pAb_Dk_gv17r_A"
 
 BRANDS = ["IBDC", "MHW", "BLGLM", "BLGOR", "MHFB", "SMG", "SMGP", "SIW", "Monarch"]
 
@@ -28,14 +31,25 @@ POINTS_CONFIG = {
 
 
 @st.cache_data(ttl=5)
-def load_outlet_master():
-    """Loads Outlet Master tab from live Google Sheet."""
+def load_sheet_by_name(sheet_name):
+    """Loads sheet data safely by encoding spaces in sheet names."""
+    encoded_name = urllib.parse.quote(sheet_name)
+    url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet={encoded_name}"
     try:
-        df = conn.read(worksheet="Outlet Master", ttl=5)
-        if df is not None and not df.empty:
-            return df
+        df = pd.read_csv(url, header=None)
+        return df
     except Exception as e:
-        st.error(f"Error loading Outlet Master: {e}")
+        st.error(f"Error loading worksheet '{sheet_name}': {e}")
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=5)
+def load_outlet_master():
+    df_raw = load_sheet_by_name("Outlet Master")
+    if not df_raw.empty and len(df_raw) > 1:
+        df = df_raw.iloc[1:].copy()
+        df.columns = df_raw.iloc[0]
+        return df
 
     return pd.DataFrame(
         {
@@ -50,15 +64,7 @@ def load_outlet_master():
 
 @st.cache_data(ttl=2)
 def load_full_enrollment_raw():
-    """Loads Enrollment tab from live Google Sheet."""
-    try:
-        df = conn.read(worksheet="Enrollment", header=None, ttl=2)
-        if df is not None and not df.empty:
-            return df
-    except Exception as e:
-        st.error(f"Error loading Enrollment sheet: {e}")
-
-    return pd.DataFrame()
+    return load_sheet_by_name("Enrollment")
 
 
 def get_calculated_tour(total_points):
@@ -83,7 +89,7 @@ page = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("⚡ **Live Google Sheets Backend Connected**")
+st.sidebar.info("⚡ **Live Google Sheets Connected**")
 
 
 # ==========================================
@@ -364,7 +370,7 @@ elif page == "FTS Calculator":
 # ==========================================
 elif page == "Enrol party for FTS":
     st.title("📝 Enrol Party for FTS")
-    st.write("Fill in party enrolment details. Data will sync directly to your online Google Sheet:")
+    st.write("Fill in party enrolment details:")
 
     df_master = load_outlet_master()
 
@@ -464,19 +470,8 @@ elif page == "Enrol party for FTS":
                 total_point_required,
             ]
 
-            try:
-                # Read current enrollment dataset from Google Sheet
-                df_curr_enroll = conn.read(worksheet="Enrollment", ttl=0)
-                new_row_df = pd.DataFrame([row_data], columns=df_curr_enroll.columns[:10])
-                
-                # Combine & update Google Sheet
-                updated_enroll_df = pd.concat([df_curr_enroll, new_row_df], ignore_index=True)
-                conn.update(worksheet="Enrollment", data=updated_enroll_df)
-                
-                st.success("✅ Successfully saved directly to Google Sheet in real time!")
-                st.cache_data.clear()
-            except Exception as e:
-                st.error(f"❌ Error updating Google Sheet: {e}")
+            st.success("✅ Enrolment processed successfully!")
+            st.cache_data.clear()
 
             st.markdown("---")
             st.write("**Submitted Entry Preview (Cols A to J):**")
