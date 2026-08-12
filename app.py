@@ -157,6 +157,7 @@ full_html = f"""
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
     * {{
         box-sizing: border-box;
@@ -170,9 +171,15 @@ full_html = f"""
         flex-direction: column;
         align-items: center;
     }}
+    #reportCaptureArea {{
+        padding: 10px;
+        background-color: white;
+        width: 100%;
+        max-width: 400px;
+        border-radius: 6px;
+    }}
     .fts-table {{
         width: 100%;
-        max-width: 100%;
         margin: 0 auto;
         border-collapse: collapse;
         font-weight: bold;
@@ -210,18 +217,19 @@ full_html = f"""
         background-color: #25D366;
         color: white;
         border: none;
-        padding: 10px 20px;
+        padding: 12px 20px;
         font-size: 14px;
         font-weight: bold;
         border-radius: 6px;
         cursor: pointer;
         width: 100%;
-        max-width: 300px;
+        max-width: 320px;
         margin-top: 10px;
         display: flex;
         align-items: center;
         justify-content: center;
         gap: 8px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     }}
     .btn-share:active {{
         background-color: #1EBE5D;
@@ -230,39 +238,41 @@ full_html = f"""
 </head>
 <body>
 
-<table class="fts-table" id="summaryTable">
-    <thead>
-        <tr class="hdr-outlet">
-            <td colspan="3">Outlet Name: {outlet_display_str}</td>
-        </tr>
-        <tr class="hdr-main">
-            <th>Brand</th>
-            <th>Secondary</th>
-            <th>Tertiary</th>
-        </tr>
-    </thead>
-    <tbody>
-        {rows_html}
-        <tr class="row-grand">
-            <td>Grand Total</td>
-            <td>{grand_sec}</td>
-            <td>{grand_tert}</td>
-        </tr>
-        <tr class="row-points">
-            <td>Total Point</td>
-            <td colspan="2">{total_calculated_points}</td>
-        </tr>
-        <tr class="row-tour">
-            <td>Calculated Tour</td>
-            <td colspan="2">{calculated_tour}</td>
-        </tr>
-    </tbody>
-</table>
+<div id="reportCaptureArea">
+    <table class="fts-table" id="summaryTable">
+        <thead>
+            <tr class="hdr-outlet">
+                <td colspan="3">Outlet Name: {outlet_display_str}</td>
+            </tr>
+            <tr class="hdr-main">
+                <th>Brand</th>
+                <th>Secondary</th>
+                <th>Tertiary</th>
+            </tr>
+        </thead>
+        <tbody>
+            {rows_html}
+            <tr class="row-grand">
+                <td>Grand Total</td>
+                <td>{grand_sec}</td>
+                <td>{grand_tert}</td>
+            </tr>
+            <tr class="row-points">
+                <td>Total Point</td>
+                <td colspan="2">{total_calculated_points}</td>
+            </tr>
+            <tr class="row-tour">
+                <td>Calculated Tour</td>
+                <td colspan="2">{calculated_tour}</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
 
-<div class="hint-text">💡 <i>Tip: Triple-click anywhere on the table above to download photo snap directly</i></div>
+<div class="hint-text">💡 <i>Tip: Triple-click anywhere on the table to download photo snap directly</i></div>
 
-<button class="btn-share" onclick="shareReport()">
-    📲 Share Report
+<button class="btn-share" onclick="shareReportImage()">
+    📲 Share Report Image
 </button>
 
 <script>
@@ -285,17 +295,32 @@ document.getElementById('summaryTable').addEventListener('click', function() {{
     }}
 }});
 
-// Native Share API handler
-function shareReport() {{
-    const shareData = {{
-        title: 'FTS Report — {outlet_display_str}',
-        text: 'Outlet Name: {outlet_display_str}\\nGrand Total Sec: {grand_sec} | Tert: {grand_tert}\\nTotal Points: {total_calculated_points}\\nCalculated Tour: {calculated_tour}',
-    }};
-    if (navigator.share) {{
-        navigator.share(shareData).catch((err) => console.log('Error sharing:', err));
-    }} else {{
-        navigator.clipboard.writeText(shareData.text);
-        alert('Report details copied to clipboard!');
+// Native Share API for capturing entire table as PNG
+async function shareReportImage() {{
+    const area = document.getElementById('reportCaptureArea');
+    
+    try {{
+        const canvas = await html2canvas(area, {{ scale: 2, useCORS: true }});
+        canvas.toBlob(async function(blob) {{
+            const fileName = 'FTS_Report_{outlet_display_str.replace(" ", "_")}.png';
+            const file = new File([blob], fileName, {{ type: 'image/png' }});
+            
+            if (navigator.canShare && navigator.canShare({{ files: [file] }})) {{
+                await navigator.share({{
+                    files: [file],
+                    title: 'FTS Summary Report — {outlet_display_str}',
+                    text: 'FTS Summary Report image for {outlet_display_str}'
+                }});
+            }} else {{
+                // Fallback direct image download
+                const link = document.createElement('a');
+                link.download = fileName;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            }}
+        }}, 'image/png');
+    }} catch (err) {{
+        console.error("Error generating image report:", err);
     }}
 }}
 </script>
@@ -305,7 +330,7 @@ function shareReport() {{
 """
 
 # Render via HTML iframe component
-components.html(full_html, height=1280, scrolling=False)
+components.html(full_html, height=1300, scrolling=False)
 
 
 # Function to render image snapshot via Matplotlib for direct download
