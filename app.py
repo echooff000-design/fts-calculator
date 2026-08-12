@@ -1,26 +1,16 @@
 import io
-import os
 import re
 import matplotlib.pyplot as plt
-import openpyxl
 import pandas as pd
-import requests
 import streamlit as st
 import streamlit.components.v1 as components
+from streamlit_gsheets import GSheetsConnection
 
 # Page Configuration
 st.set_page_config(page_title="FTS Management Portal", layout="centered")
 
-# Direct Shareable Download URL for your SharePoint File
-SHAREPOINT_DIRECT_DOWNLOAD_URL = "https://tilaknagarindustries-my.sharepoint.com/:x:/g/personal/andebnath_tilind_com/IQBXwlCv60OJSoXvUAk-7j7FATrDyVAIk_UoFRX4p1k2pWw?download=1"
-
-# Local search fallback paths (for offline desktop use)
-PRIMARY_XLSX = r"C:\Users\admin\OneDrive - Tilak Nagar Industries Ltd\Documents\App Data\FTS Calculation Update.xlsx"
-LOCAL_SEARCH_PATHS = [
-    PRIMARY_XLSX,
-    "FTS Calculation Update.xlsx",
-    "FTS Calculator.xlsx",
-]
+# Initialize Google Sheets Connection
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 BRANDS = ["IBDC", "MHW", "BLGLM", "BLGOR", "MHFB", "SMG", "SMGP", "SIW", "Monarch"]
 
@@ -37,34 +27,15 @@ POINTS_CONFIG = {
 }
 
 
-@st.cache_data(ttl=10)
-def fetch_sharepoint_excel_bytes():
-    """Downloads live Excel workbook bytes directly from SharePoint share link."""
-    try:
-        res = requests.get(SHAREPOINT_DIRECT_DOWNLOAD_URL, timeout=10)
-        if res.status_code == 200:
-            return res.content
-    except Exception:
-        pass
-
-    # Fallback to local desktop file if offline
-    for path in LOCAL_SEARCH_PATHS:
-        if os.path.exists(path):
-            with open(path, "rb") as f:
-                return f.read()
-
-    return None
-
-
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=5)
 def load_outlet_master():
-    """Reads Outlet Master sheet directly from live SharePoint workbook."""
-    excel_bytes = fetch_sharepoint_excel_bytes()
-    if excel_bytes:
-        try:
-            return pd.read_excel(io.BytesIO(excel_bytes), sheet_name="Outlet Master")
-        except Exception:
-            pass
+    """Loads Outlet Master tab from live Google Sheet."""
+    try:
+        df = conn.read(worksheet="Outlet Master", ttl=5)
+        if df is not None and not df.empty:
+            return df
+    except Exception as e:
+        st.error(f"Error loading Outlet Master: {e}")
 
     return pd.DataFrame(
         {
@@ -77,69 +48,17 @@ def load_outlet_master():
     )
 
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=2)
 def load_full_enrollment_raw():
-    """Reads raw Enrollment sheet directly from live SharePoint workbook."""
-    excel_bytes = fetch_sharepoint_excel_bytes()
-    if excel_bytes:
-        try:
-            xl = pd.ExcelFile(io.BytesIO(excel_bytes))
-            sheet_name = "Enrollment" if "Enrollment" in xl.sheet_names else "Enrolment"
-            return pd.read_excel(io.BytesIO(excel_bytes), sheet_name=sheet_name, header=None)
-        except Exception:
-            pass
-    return pd.DataFrame()
-
-
-def update_row_references(formula_str, old_row, new_row):
-    """Adjusts cell row numbers in Excel formulas."""
-    if not isinstance(formula_str, str) or not formula_str.startswith("="):
-        return formula_str
-
-    def replace_row(match):
-        col = match.group(1)
-        row = int(match.group(2))
-        if row == old_row:
-            return f"{col}{new_row}"
-        return match.group(0)
-
-    pattern = r"([A-Za-z]+)(\d+)"
-    return re.sub(pattern, replace_row, formula_str)
-
-
-def append_enrolment_to_bytes(row_values):
-    """Appends enrolment record and drags formulas down in-memory."""
-    excel_bytes = fetch_sharepoint_excel_bytes()
-    if not excel_bytes:
-        return False, "Could not load base Excel file.", None
-
+    """Loads Enrollment tab from live Google Sheet."""
     try:
-        wb = openpyxl.load_workbook(io.BytesIO(excel_bytes))
-        sheet_name = "Enrollment" if "Enrollment" in wb.sheetnames else "Enrolment"
-        sheet = wb[sheet_name]
-
-        new_row_idx = sheet.max_row + 1
-        if sheet.max_row == 1 and sheet.cell(1, 1).value is None:
-            new_row_idx = 1
-
-        for col_idx, val in enumerate(row_values, start=1):
-            sheet.cell(row=new_row_idx, column=col_idx, value=val)
-
-        prev_row_idx = new_row_idx - 1
-        if prev_row_idx >= 3:
-            for col_idx in range(len(row_values) + 1, sheet.max_column + 1):
-                prev_cell = sheet.cell(row=prev_row_idx, column=col_idx)
-                prev_val = prev_cell.value
-                if isinstance(prev_val, str) and prev_val.startswith("="):
-                    new_formula = update_row_references(prev_val, prev_row_idx, new_row_idx)
-                    sheet.cell(row=new_row_idx, column=col_idx, value=new_formula)
-
-        out_buffer = io.BytesIO()
-        wb.save(out_buffer)
-        out_buffer.seek(0)
-        return True, "Successfully registered enrolment entry!", out_buffer.getvalue()
+        df = conn.read(worksheet="Enrollment", header=None, ttl=2)
+        if df is not None and not df.empty:
+            return df
     except Exception as e:
-        return False, f"Error processing file: {e}", None
+        st.error(f"Error loading Enrollment sheet: {e}")
+
+    return pd.DataFrame()
 
 
 def get_calculated_tour(total_points):
@@ -154,7 +73,7 @@ def get_calculated_tour(total_points):
 
 
 # ==========================================
-# SIDEBAR NAVIGATION & EXCEL DOWNLOAD
+# SIDEBAR NAVIGATION
 # ==========================================
 st.sidebar.title("📌 FTS Portal Menu")
 
@@ -164,17 +83,7 @@ page = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("💾 Master Excel File")
-
-master_bytes = fetch_sharepoint_excel_bytes()
-if master_bytes:
-    st.sidebar.download_button(
-        label="📥 Download Master Excel Workbook",
-        data=master_bytes,
-        file_name="FTS Calculation Update.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
-    )
+st.sidebar.info("⚡ **Live Google Sheets Backend Connected**")
 
 
 # ==========================================
@@ -182,12 +91,12 @@ if master_bytes:
 # ==========================================
 if page == "Ach as per enrolment":
     st.title("📊 Achievement vs Enrolment Report")
-    st.write("Live achievement tracking against committed party targets:")
+    st.write("Track live achievement against committed party targets:")
 
     df_raw = load_full_enrollment_raw()
 
     if df_raw.empty or len(df_raw) < 3:
-        st.warning("No enrolment data available.")
+        st.warning("No enrolment data available. Please submit an enrolment first.")
     else:
         main_cols = [
             "Asm", "TSE", "Lic ID/Group", "Outlet Name", "Group/Individual",
@@ -267,13 +176,17 @@ if page == "Ach as per enrolment":
             st.markdown("### 📋 Enrollment Overview")
             st.dataframe(filtered_df, use_container_width=True, hide_index=True)
 
+
 # ==========================================
 # PAGE 2: FTS CALCULATOR
 # ==========================================
 elif page == "FTS Calculator":
     st.title("FTS Calculator")
 
-    outlet_name_calc = st.text_input("Outlet Name", value="", placeholder="Enter Outlet Name here...")
+    outlet_name_calc = st.text_input(
+        "Outlet Name", value="", placeholder="Enter Outlet Name here..."
+    )
+
     st.subheader("Data Input — Aug'26 to Oct'26 Plan")
 
     inputs = {}
@@ -283,8 +196,12 @@ elif page == "FTS Calculator":
 
     for b in BRANDS:
         c1, c2 = st.columns(2)
-        sec_val = c1.number_input(f"{b} (Secondary)", min_value=0, value=0, step=1, key=f"{b}_sec")
-        tert_val = c2.number_input(f"{b} (Tertiary)", min_value=0, value=0, step=1, key=f"{b}_tert")
+        sec_val = c1.number_input(
+            f"{b} (Secondary)", min_value=0, value=0, step=1, key=f"{b}_sec"
+        )
+        tert_val = c2.number_input(
+            f"{b} (Tertiary)", min_value=0, value=0, step=1, key=f"{b}_tert"
+        )
 
         inputs[b] = (sec_val, tert_val)
         total_sec += sec_val
@@ -294,7 +211,9 @@ elif page == "FTS Calculator":
         total_calculated_points += (sec_val * pts_sec) + (tert_val * pts_tert)
 
     calculated_tour = get_calculated_tour(total_calculated_points)
-    outlet_display_str = outlet_name_calc.strip() if outlet_name_calc.strip() else "N/A"
+    outlet_display_str = (
+        outlet_name_calc.strip() if outlet_name_calc.strip() else "N/A"
+    )
 
     st.markdown("---")
     st.subheader("Summary Report")
@@ -402,7 +321,9 @@ elif page == "FTS Calculator":
 
         for b in BRANDS:
             sec, tert = inputs[b]
-            table_data.append([b, str(sec) if sec > 0 else "", str(tert) if tert > 0 else ""])
+            table_data.append(
+                [b, str(sec) if sec > 0 else "", str(tert) if tert > 0 else ""]
+            )
             cell_colors.append(["#7030A0", "#FFFFFF", "#FFFFFF"])
 
         table_data.append(["Total", str(total_sec), str(total_tert)])
@@ -414,7 +335,12 @@ elif page == "FTS Calculator":
         table_data.append(["Calculated Tour", str(calculated_tour), ""])
         cell_colors.append(["#003300", "#003300", "#003300"])
 
-        tab = ax.table(cellText=table_data, cellColours=cell_colors, loc="center", cellLoc="center")
+        tab = ax.table(
+            cellText=table_data,
+            cellColours=cell_colors,
+            loc="center",
+            cellLoc="center",
+        )
         tab.scale(1, 1.3)
 
         buf = io.BytesIO()
@@ -432,12 +358,13 @@ elif page == "FTS Calculator":
         mime="image/png",
     )
 
+
 # ==========================================
 # PAGE 3: ENROL PARTY FOR FTS
 # ==========================================
 elif page == "Enrol party for FTS":
     st.title("📝 Enrol Party for FTS")
-    st.write("Fill in party enrolment details below:")
+    st.write("Fill in party enrolment details. Data will sync directly to your online Google Sheet:")
 
     df_master = load_outlet_master()
 
@@ -495,15 +422,21 @@ elif page == "Enrol party for FTS":
 
         with q_col1:
             st.markdown("##### 12,000 Pts")
-            qty_mauritius = st.number_input("4N/ 5D Mauritius (Qty)", min_value=0, value=0, step=1, key="qty_mauritius")
+            qty_mauritius = st.number_input(
+                "4N/ 5D Mauritius (Qty)", min_value=0, value=0, step=1, key="qty_mauritius"
+            )
 
         with q_col2:
             st.markdown("##### 9,000 Pts")
-            qty_ladakh = st.number_input("6N/ 7D Ladakh (Qty)", min_value=0, value=0, step=1, key="qty_ladakh")
+            qty_ladakh = st.number_input(
+                "6N/ 7D Ladakh (Qty)", min_value=0, value=0, step=1, key="qty_ladakh"
+            )
 
         with q_col3:
             st.markdown("##### 6,000 Pts")
-            qty_manali = st.number_input("4N/ 5D Manali (Qty)", min_value=0, value=0, step=1, key="qty_manali")
+            qty_manali = st.number_input(
+                "4N/ 5D Manali (Qty)", min_value=0, value=0, step=1, key="qty_manali"
+            )
 
         submit_btn = st.form_submit_button("🚀 Submit Enrolment")
 
@@ -531,15 +464,25 @@ elif page == "Enrol party for FTS":
                 total_point_required,
             ]
 
-            success, msg, updated_bytes = append_enrolment_to_bytes(row_data)
-            if success and updated_bytes:
-                st.success("✅ Enrolment recorded successfully!")
-                st.download_button(
-                    label="📥 Download Updated Excel File",
-                    data=updated_bytes,
-                    file_name="FTS Calculation Update.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                )
-            else:
-                st.error(f"❌ {msg}")
+            try:
+                # Read current enrollment dataset from Google Sheet
+                df_curr_enroll = conn.read(worksheet="Enrollment", ttl=0)
+                new_row_df = pd.DataFrame([row_data], columns=df_curr_enroll.columns[:10])
+                
+                # Combine & update Google Sheet
+                updated_enroll_df = pd.concat([df_curr_enroll, new_row_df], ignore_index=True)
+                conn.update(worksheet="Enrollment", data=updated_enroll_df)
+                
+                st.success("✅ Successfully saved directly to Google Sheet in real time!")
+                st.cache_data.clear()
+            except Exception as e:
+                st.error(f"❌ Error updating Google Sheet: {e}")
+
+            st.markdown("---")
+            st.write("**Submitted Entry Preview (Cols A to J):**")
+            preview_df = pd.DataFrame([row_data], columns=[
+                "Asm", "TSE", "Lic ID/Group", "Outlet Name", "Group/Individual",
+                "4N/ 5D Mauritius", "6N/ 7D Ladakh", "4N/ 5D Manali",
+                "Total Ticket", "Total Point Required"
+            ])
+            st.dataframe(preview_df, use_container_width=True)
