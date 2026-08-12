@@ -37,7 +37,6 @@ st.markdown(
     .row-tour { background-color: #003300; color: white; text-align: left; }
     </style>
 """,
-    unsafe_allow_dict_multiplier=True,
     unsafe_allow_html=True,
 )
 
