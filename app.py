@@ -2,43 +2,10 @@ import io
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 # Configure page settings
 st.set_page_config(page_title="FTS Calculator", layout="centered")
-
-# Custom CSS for table styling matching your exact layout & colors
-st.markdown(
-    """
-    <style>
-    .stApp {
-        background-color: #f8f9fa;
-    }
-    .fts-table {
-        width: 100%;
-        max-width: 420px;
-        margin: 20px auto;
-        border-collapse: collapse;
-        font-family: Arial, sans-serif;
-        font-weight: bold;
-        font-size: 14px;
-        text-align: center;
-        border: 2px solid #000;
-    }
-    .fts-table th, .fts-table td {
-        border: 1px solid #000;
-        padding: 6px 8px;
-    }
-    .hdr-main { background-color: #002060; color: white; }
-    .hdr-month { background-color: #C6EFCE; color: #006100; text-align: center; }
-    .lbl-brand { background-color: #7030A0; color: white; text-align: left; padding-left: 10px; }
-    .row-total { background-color: #00B0F0; color: black; }
-    .row-grand { background-color: #FCE4D6; color: black; text-align: left; }
-    .row-points { background-color: #E2EFDA; color: black; }
-    .row-tour { background-color: #003300; color: white; text-align: left; }
-    </style>
-""",
-    unsafe_allow_html=True,
-)
 
 # Month Configuration & Point Multipliers derived directly from Excel logic
 MONTHS = ["Aug'26", "Sep'26", "Oct'26"]
@@ -118,19 +85,17 @@ for m in MONTHS:
     m_sec_sum = 0
     m_tert_sum = 0
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown(f"**Secondary ({m})**")
-    with col2:
-        st.markdown(f"**Tertiary ({m})**")
-
     for b in BRANDS:
         c1, c2 = st.columns(2)
         sec_val = c1.number_input(
-            f"{b} (Sec)", min_value=0, value=0, step=1, key=f"{m}_{b}_sec"
+            f"{b} (Sec) [{m}]", min_value=0, value=0, step=1, key=f"{m}_{b}_sec"
         )
         tert_val = c2.number_input(
-            f"{b} (Tert)", min_value=0, value=0, step=1, key=f"{m}_{b}_tert"
+            f"{b} (Tert) [{m}]",
+            min_value=0,
+            value=0,
+            step=1,
+            key=f"{m}_{b}_tert",
         )
 
         inputs[(m, b)] = (sec_val, tert_val)
@@ -149,10 +114,11 @@ for m in MONTHS:
 
 calculated_tour = get_calculated_tour(total_calculated_points)
 
-# Display Summary Table in HTML/CSS
+# Display Summary Report using Native Components
 st.markdown("---")
 st.subheader("Summary Report")
 
+# Generate HTML string
 rows_html = ""
 for m in MONTHS:
     rows_html += f"""
@@ -162,11 +128,13 @@ for m in MONTHS:
     """
     for b in BRANDS:
         sec, tert = inputs[(m, b)]
+        sec_disp = str(sec) if sec > 0 else ""
+        tert_disp = str(tert) if tert > 0 else ""
         rows_html += f"""
         <tr>
             <td class="lbl-brand">{b}</td>
-            <td style="background-color: white;">{sec if sec > 0 else ''}</td>
-            <td style="background-color: white;">{tert if tert > 0 else ''}</td>
+            <td style="background-color: white;">{sec_disp}</td>
+            <td style="background-color: white;">{tert_disp}</td>
         </tr>
         """
     m_sec, m_tert = month_totals[m]
@@ -178,7 +146,41 @@ for m in MONTHS:
     </tr>
     """
 
-full_table_html = f"""
+full_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+    body {{
+        margin: 0;
+        padding: 0;
+        font-family: Arial, sans-serif;
+        background-color: transparent;
+    }}
+    .fts-table {{
+        width: 100%;
+        max-width: 400px;
+        margin: 0 auto;
+        border-collapse: collapse;
+        font-weight: bold;
+        font-size: 14px;
+        text-align: center;
+        border: 2px solid #000;
+    }}
+    .fts-table th, .fts-table td {{
+        border: 1px solid #000;
+        padding: 6px 8px;
+    }}
+    .hdr-main {{ background-color: #002060; color: white; }}
+    .hdr-month {{ background-color: #C6EFCE; color: #006100; text-align: center; }}
+    .lbl-brand {{ background-color: #7030A0; color: white; text-align: left; padding-left: 10px; }}
+    .row-total {{ background-color: #00B0F0; color: black; }}
+    .row-grand {{ background-color: #FCE4D6; color: black; text-align: left; }}
+    .row-points {{ background-color: #E2EFDA; color: black; }}
+    .row-tour {{ background-color: #003300; color: white; text-align: left; }}
+</style>
+</head>
+<body>
 <table class="fts-table">
     <thead>
         <tr class="hdr-main">
@@ -204,9 +206,12 @@ full_table_html = f"""
         </tr>
     </tbody>
 </table>
+</body>
+</html>
 """
 
-st.markdown(full_table_html, unsafe_allow_html=True)
+# Render via html component to avoid markdown raw text escaping issues
+components.html(full_html, height=1150, scrolling=False)
 
 
 # Function to render image snapshot via Matplotlib for direct download
